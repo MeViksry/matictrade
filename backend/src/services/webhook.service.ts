@@ -32,8 +32,8 @@ async function getBinancePrice(symbol: string): Promise<number> {
   try {
     const response = await fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol.toUpperCase()}`)
     if (response.ok) {
-      const data = await response.json()
-      return parseFloat(data.price) || 0
+      const data = await response.json() as { price?: string }
+      return parseFloat(data.price || '0') || 0
     }
     return 0
   } catch (error) {
