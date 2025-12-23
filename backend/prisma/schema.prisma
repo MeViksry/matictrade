@@ -1,0 +1,624 @@
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum SubscriptionPlan {
+  FREE
+  MONTHLY
+  YEARLY
+  CUSTOM
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+  PENDING
+  SUSPENDED
+}
+
+enum NotificationType {
+  INFO
+  SUCCESS
+  WARNING
+  ERROR
+  PAYMENT_REMINDER
+  SUBSCRIPTION_EXPIRING
+  SUBSCRIPTION_EXPIRED
+  SYSTEM
+  BOT_NOTIFICATION
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+  CANCELLED
+  PROCESSING
+}
+
+enum PaymentMethod {
+  BANK_TRANSFER
+  E_WALLET
+  CREDIT_CARD
+  CRYPTO
+  MANUAL
+  SUBSCRIPTION
+}
+
+enum Exchange {
+  BINANCE
+  OKX
+  BITGET
+}
+
+enum OrderSide {
+  BUY
+  SELL
+}
+
+enum OrderType {
+  MARKET
+  LIMIT
+  STOP
+  STOP_MARKET
+  TAKE_PROFIT
+  TAKE_PROFIT_MARKET
+}
+
+enum OrderStatus {
+  PENDING
+  OPEN
+  FILLED
+  PARTIALLY_FILLED
+  CANCELLED
+  FAILED
+  EXPIRED
+}
+
+enum PositionSide {
+  LONG
+  SHORT
+}
+
+enum WebhookStatus {
+  SUCCESS
+  FAILED
+  PENDING
+  PROCESSING
+}
+
+model User {
+  id                          String    @id @default(uuid())
+  email                       String    @unique
+  username                    String    @unique
+  password                    String
+  fullName                    String
+  phone                       String?
+  address                     String?
+  avatar                      String?   @db.Text
+  role                        UserRole  @default(USER)
+  isActive                    Boolean   @default(false)
+  isEmailVerified             Boolean   @default(false)
+  emailVerifyCode             String?
+  emailVerifyExpiry           DateTime?
+  resetPasswordToken          String?
+  resetPasswordExpiry         DateTime?
+  lastLoginAt                 DateTime?
+  lastLoginIp                 String?
+  subscriptionEndReminderSent Boolean   @default(false)
+  lastPaymentReminderAt       DateTime?
+  totalSpent                  Float     @default(0)
+  lastActiveAt                DateTime?
+  loginCount                  Int       @default(0)
+  botActive                   Boolean   @default(false)
+  createdAt                   DateTime  @default(now())
+  updatedAt                   DateTime  @updatedAt
+
+  // Relations
+  profile         UserProfile?
+  subscription    Subscription?
+  apiKeys         ApiKey[]
+  portfolio       Portfolio?
+  orders          Order[]
+  positions       Position[]
+  tradeHistory    TradeHistory[]
+  webhookConfig   WebhookConfig?
+  webhookLogs     WebhookLog[]
+  botSettings     BotSettings?
+  notifications   Notification[]
+  adminLogs       AdminLog[]       @relation("AdminLogs")
+  targetAdminLogs AdminLog[]       @relation("TargetAdminLogs")
+  paymentHistory  PaymentHistory[]
+  revenueDaily    RevenueDaily[]
+
+  @@index([email])
+  @@index([username])
+  @@index([isActive])
+  @@index([botActive])
+  @@index([createdAt])
+  @@index([role])
+}
+
+model UserProfile {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  avatar    String? // URL gambar
+  phone     String?
+  address   String?
+  bio       String?
+  website   String?
+  social    Json? // { twitter: "...", facebook: "...", etc }
+  settings  Json? // User preferences
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Subscription {
+  id               String             @id @default(uuid())
+  userId           String             @unique
+  plan             SubscriptionPlan   @default(FREE)
+  status           SubscriptionStatus @default(PENDING)
+  price            Float              @default(0) // Harga sebenarnya
+  startDate        DateTime?
+  endDate          DateTime?
+  autoRenew        Boolean            @default(false)
+  paymentMethod    PaymentMethod?
+  paymentStatus    PaymentStatus      @default(PENDING)
+  paymentProof     String? // URL bukti pembayaran
+  paymentDate      DateTime?
+  customDuration   Int? // Durasi custom dalam hari
+  renewalCount     Int                @default(0) // Jumlah perpanjangan
+  lastRenewalDate  DateTime?
+  nextReminderDate DateTime? // Tanggal reminder berikutnya (3 hari sebelum endDate)
+  adminNotes       String? // Catatan admin
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments PaymentHistory[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([endDate])
+  @@index([paymentStatus])
+  @@index([createdAt])
+  @@index([plan])
+}
+
+model PaymentHistory {
+  id             String        @id @default(uuid())
+  userId         String
+  subscriptionId String?
+  amount         Float
+  currency       String        @default("IDR")
+  paymentMethod  PaymentMethod
+  status         PaymentStatus @default(PENDING)
+  transactionId  String?
+  providerRef    String? // Reference dari payment provider
+  paymentProof   String? // URL bukti pembayaran
+  adminNotes     String? // Catatan admin
+  paidAt         DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([subscriptionId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([paymentMethod])
+}
+
+model RevenueDaily {
+  id                      String   @id @default(uuid())
+  date                    DateTime
+  totalRevenue            Float    @default(0)
+  userCount               Int      @default(0)
+  activeUsers             Int      @default(0)
+  newUsers                Int      @default(0)
+  totalTrades             Int      @default(0)
+  averageTransactionValue Float    @default(0)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  User                    User?    @relation(fields: [userId], references: [id])
+  userId                  String?
+
+  @@unique([date])
+  @@index([date])
+}
+
+model ApiKey {
+  id            String    @id @default(uuid())
+  userId        String
+  exchange      Exchange
+  apiKey        String // Encrypted
+  secretKey     String // Encrypted
+  passphrase    String? // Encrypted (for OKX)
+  isActive      Boolean   @default(true)
+  isValid       Boolean   @default(false)
+  lastValidated DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, exchange])
+  @@index([userId])
+  @@index([exchange])
+}
+
+model Portfolio {
+  id               String   @id @default(uuid())
+  userId           String   @unique
+  totalBalance     Float    @default(0)
+  availableBalance Float    @default(0)
+  unrealizedPnl    Float    @default(0)
+  realizedPnl      Float    @default(0)
+  equity           Float    @default(0)
+  marginUsed       Float    @default(0)
+  marginAvailable  Float    @default(0)
+  lastUpdated      DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Position {
+  id                   String       @id @default(uuid())
+  userId               String
+  exchange             Exchange
+  symbol               String
+  side                 PositionSide
+  size                 Float
+  entryPrice           Float
+  markPrice            Float        @default(0)
+  leverage             Int          @default(1)
+  unrealizedPnl        Float        @default(0)
+  unrealizedPnlPercent Float        @default(0)
+  liquidationPrice     Float?
+  margin               Float        @default(0)
+  stopLoss             Float?
+  takeProfit           Float?
+  isOpen               Boolean      @default(true)
+  openedAt             DateTime     @default(now())
+  closedAt             DateTime?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([symbol])
+  @@index([isOpen])
+  @@index([exchange])
+}
+
+model Order {
+  id              String      @id @default(uuid())
+  userId          String
+  exchange        Exchange
+  exchangeOrderId String?
+  symbol          String
+  side            OrderSide
+  type            OrderType
+  status          OrderStatus @default(PENDING)
+  price           Float?
+  quantity        Float
+  filledQuantity  Float       @default(0)
+  leverage        Int         @default(1)
+  stopLoss        Float?
+  takeProfit      Float?
+  reduceOnly      Boolean     @default(false)
+  clientOrderId   String?
+  errorMessage    String?
+  executedAt      DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([symbol])
+  @@index([status])
+  @@index([exchange])
+  @@index([exchangeOrderId])
+}
+
+model TradeHistory {
+  id         String       @id @default(uuid())
+  userId     String
+  exchange   Exchange
+  symbol     String
+  side       PositionSide
+  entryPrice Float
+  exitPrice  Float
+  quantity   Float
+  leverage   Int
+  pnl        Float
+  pnlPercent Float
+  fee        Float        @default(0)
+  duration   Int // in seconds
+  openedAt   DateTime
+  closedAt   DateTime
+  createdAt  DateTime     @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([symbol])
+  @@index([closedAt])
+}
+
+model WebhookConfig {
+  id            String    @id @default(uuid())
+  userId        String    @unique
+  token         String    @unique
+  isActive      Boolean   @default(true)
+  lastTriggered DateTime?
+  totalTriggers Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  logs WebhookLog[]
+
+  @@index([token])
+}
+
+model WebhookLog {
+  id           String        @id @default(uuid())
+  webhookId    String
+  userId       String
+  payload      Json
+  status       WebhookStatus @default(PENDING)
+  response     Json?
+  errorMessage String?
+  processedAt  DateTime?
+  createdAt    DateTime      @default(now())
+
+  webhook WebhookConfig @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([webhookId])
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model BotSettings {
+  id                  String   @id @default(uuid())
+  userId              String   @unique
+  isEnabled           Boolean  @default(false)
+  maxPositions        Int      @default(5)
+  defaultLeverage     Int      @default(10)
+  maxLeverage         Int      @default(50)
+  riskPerTrade        Float    @default(2) // percentage
+  stopLossPercent     Float    @default(5)
+  takeProfitPercent   Float    @default(10)
+  trailingStop        Boolean  @default(false)
+  trailingStopPercent Float?
+  allowedSymbols      String[] @default([])
+  blacklistedSymbols  String[] @default([])
+  tradingHoursStart   String?
+  tradingHoursEnd     String?
+  tradingTimezone     String   @default("UTC")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isEnabled])
+}
+
+model Notification {
+  id          String           @id @default(uuid())
+  userId      String
+  type        NotificationType
+  title       String
+  message     String
+  isRead      Boolean          @default(false)
+  isArchived  Boolean          @default(false)
+  data        Json?
+  scheduledAt DateTime? // Untuk scheduled notifications
+  expiresAt   DateTime? // Auto archive setelah expire
+  createdAt   DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
+  @@index([isRead])
+  @@index([createdAt])
+  @@index([scheduledAt])
+}
+
+model AdminLog {
+  id           String   @id @default(uuid())
+  adminId      String
+  targetUserId String?
+  action       String
+  details      Json?
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+
+  admin      User  @relation("AdminLogs", fields: [adminId], references: [id], onDelete: Cascade)
+  targetUser User? @relation("TargetAdminLogs", fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  @@index([adminId])
+  @@index([targetUserId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model PerformanceMetrics {
+  id                 String   @id @default(uuid())
+  userId             String   @unique
+  totalPnl           Float    @default(0)
+  totalPnlPercent    Float    @default(0)
+  totalTrades        Int      @default(0)
+  profitableTrades   Int      @default(0)
+  losingTrades       Int      @default(0)
+  winRate            Float    @default(0)
+  profitFactor       Float    @default(0)
+  maxDrawdown        Float    @default(0)
+  maxDrawdownPercent Float    @default(0)
+  averageWin         Float    @default(0)
+  averageLoss        Float    @default(0)
+  largestWin         Float    @default(0)
+  largestLoss        Float    @default(0)
+  lastCalculated     DateTime @default(now())
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model SystemSettings {
+  id                    String   @id @default(uuid())
+  platformName          String   @default("MaticTrade")
+  supportEmail          String   @default("support@matictrade.com")
+  maintenanceMode       Boolean  @default(false)
+  webhookToken          String   @unique
+  emailNotifications    Boolean  @default(true)
+  telegramNotifications Boolean  @default(false)
+  telegramBotToken      String?
+  telegramChatId        String?
+  smtpHost              String?
+  smtpPort              Int?
+  smtpUser              String?
+  smtpPassword          String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([webhookToken])
+}
+
+// Blog System
+enum BlogStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model BlogPost {
+  id              String      @id @default(uuid())
+  title           String
+  slug            String      @unique
+  excerpt         String?
+  content         String      @db.Text
+  featuredImage   String?
+  category        String
+  tags            String[]    @default([])
+  author          String
+  status          BlogStatus  @default(DRAFT)
+  featured        Boolean     @default(false)
+  views           Int         @default(0)
+  // SEO Meta
+  metaTitle       String?
+  metaDescription String?
+  metaKeywords    String?
+  // Timestamps
+  publishedAt     DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([slug])
+  @@index([status])
+  @@index([category])
+  @@index([publishedAt])
+  @@index([featured])
+}
+
+model BlogCategory {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+
+  @@index([slug])
+}
+
+// Live Chat System
+enum ChatStatus {
+  ACTIVE
+  CLOSED
+  ARCHIVED
+}
+
+enum SenderType {
+  VISITOR
+  ADMIN
+}
+
+model ChatSession {
+  id          String        @id @default(uuid())
+  email       String
+  fullName    String
+  whatsapp    String
+  username    String
+  address     String?
+  status      ChatStatus    @default(ACTIVE)
+  isOnline    Boolean       @default(true)
+  lastSeenAt  DateTime      @default(now())
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  messages    ChatMessage[]
+
+  @@index([email])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ChatMessage {
+  id          String      @id @default(uuid())
+  sessionId   String
+  senderType  SenderType
+  adminId     String?
+  message     String      @db.Text
+  imageUrl    String?     // For photo/screenshot attachments
+  isRead      Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+
+  session     ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([createdAt])
+  @@index([isRead])
+}
+
+// Site Settings for social media links and other configurations
+model SiteSettings {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([key])
+}
